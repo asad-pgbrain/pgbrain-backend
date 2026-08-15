@@ -7,6 +7,9 @@ from sentence_transformers import SentenceTransformer
 import os
 from dotenv import load_dotenv
 import groq
+import sys
+print("Python version:", sys.version)
+print("Starting PgBrain...")
 
 load_dotenv()
 
