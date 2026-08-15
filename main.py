@@ -1,4 +1,7 @@
-# PgBrain Backend - Railway Deployment v1.0
+"""
+PgBrain - FastAPI Backend (Railway Deployment)
+"""
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -8,22 +11,19 @@ import os
 from dotenv import load_dotenv
 import groq
 import sys
+
 print("Python version:", sys.version)
 print("Starting PgBrain...")
 
 load_dotenv()
 
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
-# Hardcode Neon URL (temporary fix)
+# Database URL (hardcoded for Railway)
 DATABASE_URL = "postgresql://neondb_owner:npg_GR9WZ3XFpwOx@ep-floral-fog-auuc311p.c-10.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
+# Initialize FastAPI
 app = FastAPI(title="PgBrain API")
 
-# CORS middleware
+# CORS middleware - Allow all origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,9 +31,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Database config
-DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Load embedding model
 print("📥 Loading embedding model...")
