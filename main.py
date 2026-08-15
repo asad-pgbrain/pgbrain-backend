@@ -1,7 +1,3 @@
-"""
-PgBrain - FastAPI Backend (Groq Integration)
-"""
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -13,19 +9,18 @@ import groq
 
 load_dotenv()
 
-# Initialize FastAPI
 app = FastAPI(title="PgBrain API")
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Database config (Neon cloud)
+# Database config
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Load embedding model
@@ -54,24 +49,26 @@ def query_pgbrain(request: QueryRequest):
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
         cur.execute("""
-    SELECT 
-        dc.content,
-        sd.title
-    FROM document_chunks dc
-    JOIN source_documents sd ON dc.document_id = sd.id
-    ORDER BY dc.embedding <=> %s::vector
-    LIMIT 3;
-""", (query_embedding,))
-              
+            SELECT 
+                dc.content,
+                sd.title
+            FROM document_chunks dc
+            JOIN source_documents sd ON dc.document_id = sd.id
+            ORDER BY dc.embedding <=> %s::vector
+            LIMIT 3;
+        """, (query_embedding,))
         results = cur.fetchall()
         conn.close()
         if not results:
-            return QueryResponse(answer="I don't have enough information.", sources=[])
+            return QueryResponse(
+                answer="I don't have enough information.",
+                sources=[]
+            )
         context = "\n\n".join([f"[{title}]: {content}" for content, title in results])
         response = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "system", "content": "You are PgBrain. Answer in English using ONLY the provided context."},
+                {"role": "system", "content": "You are PgBrain. Answer in English using ONLY the provided context. If the context doesn't contain the answer, say 'I don't have enough information.'"},
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {request.query}"}
             ],
             temperature=0.1,
