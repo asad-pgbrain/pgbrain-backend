@@ -13,6 +13,14 @@ print("Starting PgBrain...")
 
 load_dotenv()
 
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Hardcode Neon URL (temporary fix)
+DATABASE_URL = "postgresql://neondb_owner:npg_GR9WZ3XFpwOx@ep-floral-fog-auuc311p.c-10.us-east-1.aws.neon.tech/neondb?sslmode=require"
+
 app = FastAPI(title="PgBrain API")
 
 # CORS middleware
