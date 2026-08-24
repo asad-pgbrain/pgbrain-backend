@@ -142,6 +142,9 @@ def call_llm_with_fallback(prompt, max_retries=2):
     raise Exception("All providers failed after max retries")
 
 async def get_similar_chunks(query_embedding):
+    # Convert embedding list to PostgreSQL vector string format
+    embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+    
     async with db_pool.acquire() as conn:
         results = await conn.fetch("""
             SELECT 
@@ -151,7 +154,7 @@ async def get_similar_chunks(query_embedding):
             JOIN source_documents sd ON dc.document_id = sd.id
             ORDER BY dc.embedding <=> $1::vector
             LIMIT 3;
-        """, query_embedding)
+        """, embedding_str)
         return [(r["content"], r["title"]) for r in results]        
     
     import asyncio
