@@ -75,7 +75,7 @@ def query_pgbrain(request: QueryRequest):
             )
         context = "\n\n".join([f"[{title}]: {content}" for content, title in results])
         response = groq_client.chat.completions.create(
-            model="openai/gpt-oss-20b",
+            model="groq/llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": "You are PgBrain. Answer in English using ONLY the provided context. If the context doesn't contain the answer, say 'I don't have enough information.'"},
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {request.query}"}
@@ -87,6 +87,7 @@ def query_pgbrain(request: QueryRequest):
         sources = [title for content, title in results]
         return QueryResponse(answer=answer, sources=sources)
     except Exception as e:
+        print(f"Error: {e}")  # Railway logs mein dikhega
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
