@@ -75,7 +75,7 @@ def query_pgbrain(request: QueryRequest):
             )
         context = "\n\n".join([f"[{title}]: {content}" for content, title in results])
         response = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
             messages=[
                 {"role": "system", "content": "You are PgBrain. Answer in English using ONLY the provided context. If the context doesn't contain the answer, say 'I don't have enough information.'"},
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {request.query}"}
