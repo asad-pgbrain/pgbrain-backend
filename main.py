@@ -141,20 +141,18 @@ def call_llm_with_fallback(prompt, max_retries=2):
         print(f"⚠️ All attempts failed for provider: {provider['name']}")
     raise Exception("All providers failed after max retries")
 
-def get_similar_chunks(query_embedding):
-    """Fetch similar chunks from database using connection pool"""
-    async def fetch():
-        async with db_pool.acquire() as conn:
-            results = await conn.fetch("""
-                SELECT 
-                    dc.content,
-                    sd.title
-                FROM document_chunks dc
-                JOIN source_documents sd ON dc.document_id = sd.id
-                ORDER BY dc.embedding <=> $1::vector
-                LIMIT 3;
-            """, query_embedding)
-            return [(r["content"], r["title"]) for r in results]
+async def get_similar_chunks(query_embedding):
+    async with db_pool.acquire() as conn:
+        results = await conn.fetch("""
+            SELECT 
+                dc.content,
+                sd.title
+            FROM document_chunks dc
+            JOIN source_documents sd ON dc.document_id = sd.id
+            ORDER BY dc.embedding <=> $1::vector
+            LIMIT 3;
+        """, query_embedding)
+        return [(r["content"], r["title"]) for r in results]        
     
     import asyncio
     return asyncio.run(fetch())
