@@ -1,6 +1,5 @@
 """
-PgBrain - FastAPI Backend with Connection Pooling & Streaming
-Production-grade performance optimization
+PgBrain - FastAPI Backend with Multi-Provider Fallback, Connection Pooling & Database Connection Management
 """
 
 from fastapi import FastAPI, HTTPException
@@ -18,6 +17,8 @@ import time
 import json
 from contextlib import asynccontextmanager
 import sys
+from cryptography.fernet import Fernet
+import psycopg2
 
 print("Python version:", sys.version)
 print("Starting PgBrain with Connection Pooling & Streaming...")
@@ -26,6 +27,13 @@ load_dotenv()
 
 # Database URL
 DATABASE_URL = "postgresql://neondb_owner:npg_GR9WZ3XFpwOx@ep-floral-fog-auuc311p.c-10.us-east-1.aws.neon.tech/neondb?sslmode=require"
+
+# Encryption key for database credentials
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+if not ENCRYPTION_KEY:
+    ENCRYPTION_KEY = Fernet.generate_key().decode()
+    print(f"⚠️ No ENCRYPTION_KEY found. Generated new key: {ENCRYPTION_KEY}")
+cipher = Fernet(ENCRYPTION_KEY.encode())
 
 # Global connection pool
 db_pool = None
@@ -58,7 +66,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load embedding model (lazy loading)
+# Load embedding model
 print("📥 Loading embedding model...")
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
@@ -85,6 +93,14 @@ class QueryResponse(BaseModel):
     answer: str
     sources: list
     provider: str = ""
+
+class DatabaseConnection(BaseModel):
+    host: str
+    port: int
+    database: str
+    username: str
+    password: str
+    user_id: str
 
 def call_groq(model, prompt, api_key):
     client = groq.Groq(api_key=api_key)
@@ -142,9 +158,7 @@ def call_llm_with_fallback(prompt, max_retries=2):
     raise Exception("All providers failed after max retries")
 
 async def get_similar_chunks(query_embedding):
-    # Convert embedding list to PostgreSQL vector string format
     embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
-    
     async with db_pool.acquire() as conn:
         results = await conn.fetch("""
             SELECT 
@@ -155,13 +169,9 @@ async def get_similar_chunks(query_embedding):
             ORDER BY dc.embedding <=> $1::vector
             LIMIT 3;
         """, embedding_str)
-        return [(r["content"], r["title"]) for r in results]        
-    
-    import asyncio
-    return asyncio.run(fetch())
+        return [(r["content"], r["title"]) for r in results]
 
 def generate_stream(prompt):
-    """Generate streaming response for LLM"""
     try:
         answer, provider = call_llm_with_fallback(prompt)
         yield f"data: {json.dumps({'answer': answer, 'provider': provider, 'done': True})}\n\n"
@@ -175,51 +185,99 @@ def root():
 @app.post("/query", response_model=QueryResponse)
 async def query_pgbrain(request: QueryRequest):
     try:
-        # Generate embedding
         query_embedding = model.encode(request.query).tolist()
-        
-        # Get similar chunks using connection pool
         results = await get_similar_chunks(query_embedding)
-        
         if not results:
             return QueryResponse(
                 answer="I don't have enough information.",
                 sources=[],
                 provider=""
             )
-        
-        # Build context
         context = "\n\n".join([f"[{title}]: {content}" for content, title in results])
         prompt = f"Context:\n{context}\n\nQuestion: {request.query}"
-        
-        # Call LLM with fallback
         answer, provider = call_llm_with_fallback(prompt)
-        
         sources = [title for content, title in results]
         return QueryResponse(answer=answer, sources=sources, provider=provider)
-        
     except Exception as e:
         print(f"❌ Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/connect")
+async def connect_database(conn: DatabaseConnection):
+    try:
+        # Test connection
+        test_conn = psycopg2.connect(
+            host=conn.host,
+            port=conn.port,
+            database=conn.database,
+            user=conn.username,
+            password=conn.password
+        )
+        test_conn.close()
+        
+        # Encrypt credentials
+        creds = {
+            "host": conn.host,
+            "port": conn.port,
+            "database": conn.database,
+            "username": conn.username,
+            "password": conn.password
+        }
+        encrypted = cipher.encrypt(json.dumps(creds).encode())
+        
+        # Store in database
+        async with db_pool.acquire() as pool_conn:
+            await pool_conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_connections (
+                    user_id TEXT PRIMARY KEY,
+                    encrypted_creds TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            await pool_conn.execute("""
+                INSERT INTO user_connections (user_id, encrypted_creds)
+                VALUES ($1, $2)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    encrypted_creds = $2,
+                    updated_at = NOW()
+            """, conn.user_id, encrypted.decode())
+        
+        return {"status": "success", "message": "Database connected successfully!"}
+        
+    except Exception as e:
+        print(f"❌ Connection error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/connections/{user_id}")
+async def get_user_connection(user_id: str):
+    try:
+        async with db_pool.acquire() as conn:
+            result = await conn.fetchrow(
+                "SELECT encrypted_creds FROM user_connections WHERE user_id = $1",
+                user_id
+            )
+            if not result:
+                return {"connected": False}
+            decrypted = cipher.decrypt(result["encrypted_creds"].encode())
+            creds = json.loads(decrypted.decode())
+            return {"connected": True, "host": creds["host"], "database": creds["database"]}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @app.post("/query/stream")
 async def query_stream(request: QueryRequest):
-    """Streaming endpoint for real-time responses"""
     try:
         query_embedding = model.encode(request.query).tolist()
         results = await get_similar_chunks(query_embedding)
-        
         if not results:
             return {"answer": "I don't have enough information.", "sources": []}
-        
         context = "\n\n".join([f"[{title}]: {content}" for content, title in results])
         prompt = f"Context:\n{context}\n\nQuestion: {request.query}"
-        
         return StreamingResponse(
             generate_stream(prompt),
             media_type="text/event-stream"
         )
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
