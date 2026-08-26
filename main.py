@@ -67,8 +67,15 @@ app.add_middleware(
 )
 
 # Load embedding model
-print("📥 Loading embedding model...")
-model = SentenceTransformer('all-MiniLM-L6-v2')
+# Lazy loading embedding model
+_model = None
+
+def get_embedding_model():
+    global _model
+    if _model is None:
+        print("📥 Loading embedding model (first time)...")
+        _model = SentenceTransformer('all-MiniLM-L6-v2')
+    return _model
 
 # Groq client
 groq_client = groq.Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -79,7 +86,7 @@ gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 
 # Provider configuration
 PROVIDERS = [
-    {"name": "groq", "model": "openai/gpt-oss-20b", "priority": 1, "api_key": os.getenv("GROQ_API_KEY")},
+    {"name": "groq", "model": "llama-4-scout-17b-16e-instruct", "priority": 1, "api_key": os.getenv("GROQ_API_KEY")},
     {"name": "groq_fallback", "model": "llama-3.1-8b-instant", "priority": 2, "api_key": os.getenv("GROQ_API_KEY")},
     {"name": "gemini", "model": "gemini-1.5-flash", "priority": 3},
     {"name": "openrouter", "model": "meta-llama/llama-4-scout-17b-16e-instruct", "priority": 4, "api_key": os.getenv("OPENROUTER_API_KEY")}
@@ -177,7 +184,8 @@ def generate_stream(prompt):
         yield f"data: {json.dumps({'answer': answer, 'provider': provider, 'done': True})}\n\n"
     except Exception as e:
         yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
-
+       except Exception as e:
+        yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
 @app.get("/")
 def root():
     return {"message": "PgBrain API is running. Connection pooling + streaming enabled."}
@@ -185,6 +193,7 @@ def root():
 @app.post("/query", response_model=QueryResponse)
 async def query_pgbrain(request: QueryRequest):
     try:
+        model = get_embedding_model()
         query_embedding = model.encode(request.query).tolist()
         results = await get_similar_chunks(query_embedding)
         if not results:
@@ -285,3 +294,23 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+@app.post("/query/stream")
+async def query_stream(request: QueryRequest):
+    try:
+        model = get_embedding_model()
+        query_embedding = model.encode(request.query).tolist()
+        results = await get_similar_chunks(query_embedding)
+        
+        if not results:
+            return {"answer": "I don't have enough information.", "sources": []}
+        
+        context = "\n\n".join([f"[{title}]: {content}" for content, title in results])
+        prompt = f"Context:\n{context}\n\nQuestion: {request.query}"
+        
+        return StreamingResponse(
+            generate_stream(prompt),
+            media_type="text/event-stream"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
