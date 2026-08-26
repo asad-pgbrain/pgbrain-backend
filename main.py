@@ -202,6 +202,10 @@ def root():
 async def query_pgbrain(request: QueryRequest):
     try:
         model = get_embedding_model()
+# Preprocess query — remove trailing '?' for consistent speed
+raw_query = request.query.strip()
+if raw_query.endswith('?'):
+    raw_query = raw_query[:-1]  # Remove trailing '?'
         query_embedding = model.encode(request.query).tolist()
         results = await get_similar_chunks(query_embedding)
         if not results:
@@ -211,7 +215,7 @@ async def query_pgbrain(request: QueryRequest):
                 provider=""
             )
         context = "\n\n".join([f"[{title}]: {content}" for content, title in results])
-        prompt = f"Context:\n{context}\n\nQuestion: {request.query}"
+        prompt = f"Context:\n{context}\n\nQuestion: {raw_query}"
         answer, provider = call_llm_with_fallback(prompt)
         sources = [title for content, title in results]
         return QueryResponse(answer=answer, sources=sources, provider=provider)
