@@ -1,7 +1,8 @@
 """
 PgBrain - FastAPI Backend with Multi-Provider Fallback, Connection Pooling & Database Connection Management
 """
-
+from functools import lru_cache
+import hashlib
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -18,7 +19,15 @@ import json
 from contextlib import asynccontextmanager
 import sys
 from cryptography.fernet import Fernet
-import psycopg2
+import psycopg
+@lru_cache(maxsize=50)
+def cached_query(query_hash):
+    """Cache results for repeated queries"""
+    return None  # Implementation below
+
+# In query function, add cache check:
+query_hash = hashlib.md5(request.query.encode()).hexdigest()
+# Check cache first, if found return cached result2
 
 print("Python version:", sys.version)
 print("Starting PgBrain with Connection Pooling & Streaming...")
@@ -86,7 +95,8 @@ gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 
 # Provider configuration
 PROVIDERS = [
-    {"name": "groq", "model": "llama-4-scout-17b-16e-instruct", "priority": 1, "api_key": os.getenv("GROQ_API_KEY")},
+    PROVIDERS = [
+    {"name": "groq", "model": "llama-3.1-8b-instant", "priority": 1, "api_key": os.getenv("GROQ_API_KEY")},
     {"name": "groq_fallback", "model": "llama-3.1-8b-instant", "priority": 2, "api_key": os.getenv("GROQ_API_KEY")},
     {"name": "gemini", "model": "gemini-1.5-flash", "priority": 3},
     {"name": "openrouter", "model": "meta-llama/llama-4-scout-17b-16e-instruct", "priority": 4, "api_key": os.getenv("OPENROUTER_API_KEY")}
@@ -184,8 +194,6 @@ def generate_stream(prompt):
         yield f"data: {json.dumps({'answer': answer, 'provider': provider, 'done': True})}\n\n"
     except Exception as e:
         yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
-       except Exception as e:
-        yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
 @app.get("/")
 def root():
     return {"message": "PgBrain API is running. Connection pooling + streaming enabled."}
@@ -272,24 +280,26 @@ async def get_user_connection(user_id: str):
             creds = json.loads(decrypted.decode())
             return {"connected": True, "host": creds["host"], "database": creds["database"]}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
+        raise HTTPException(status_code=400, detail=str(  
 @app.post("/query/stream")
 async def query_stream(request: QueryRequest):
     try:
+        model = get_embedding_model()
         query_embedding = model.encode(request.query).tolist()
         results = await get_similar_chunks(query_embedding)
+        
         if not results:
             return {"answer": "I don't have enough information.", "sources": []}
+        
         context = "\n\n".join([f"[{title}]: {content}" for content, title in results])
         prompt = f"Context:\n{context}\n\nQuestion: {request.query}"
+        
         return StreamingResponse(
             generate_stream(prompt),
             media_type="text/event-stream"
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
