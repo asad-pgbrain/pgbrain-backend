@@ -199,29 +199,31 @@ def generate_stream(prompt):
 @app.get("/")
 def root():
     return {"message": "PgBrain API is running. Connection pooling + streaming enabled."}
-
-
 @app.post("/query", response_model=QueryResponse)
 async def query_pgbrain(request: QueryRequest):
     try:
         model = get_embedding_model()
-# Preprocess query — remove trailing '?' for consistent speed
-raw_query = request.query.strip()
-if raw_query.endswith('?'):
-    raw_query = raw_query[:-1]  # Remove trailing '?'
-        query_embedding = model.encode(request.query).tolist()
+        # Preprocess query — remove trailing '?' for consistent speed
+        raw_query = request.query.strip()
+        if raw_query.endswith('?'):
+            raw_query = raw_query[:-1]  # Remove trailing '?'
+        
+        query_embedding = model.encode(raw_query).tolist()
         results = await get_similar_chunks(query_embedding)
+        
         if not results:
             return QueryResponse(
                 answer="I don't have enough information.",
                 sources=[],
                 provider=""
             )
+        
         context = "\n\n".join([f"[{title}]: {content}" for content, title in results])
         prompt = f"Context:\n{context}\n\nQuestion: {raw_query}"
         answer, provider = call_llm_with_fallback(prompt)
         sources = [title for content, title in results]
         return QueryResponse(answer=answer, sources=sources, provider=provider)
+        
     except Exception as e:
         print(f"❌ Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
