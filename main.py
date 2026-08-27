@@ -96,12 +96,7 @@ gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 # Provider configuration
 PROVIDERS = [
     PROVIDERS = [
-    PROVIDERS = [
-    PROVIDERS = [
-    {"name": "groq", "model": "openai/gpt-oss-20b", "priority": 1, "api_key": os.getenv("GROQ_API_KEY")},
-    {"name": "groq_fallback", "model": "llama-3.1-8b-instant", "priority": 2, "api_key": os.getenv("GROQ_API_KEY")},
-    {"name": "gemini", "model": "gemini-1.5-flash", "priority": 3},
-    {"name": "openrouter", "model": "meta-llama/llama-4-scout-17b-16e-instruct", "priority": 4, "api_key": os.getenv("OPENROUTER_API_KEY")}
+    {"name": "groq", "model": "llama-3.1-8b-instant", "priority": 1, "api_key": os.getenv("GROQ_API_KEY")},
 ]
 
 # Request/Response models
