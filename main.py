@@ -193,12 +193,18 @@ async def get_similar_chunks(query_embedding):
 def generate_stream(prompt):
     try:
         answer, provider = call_llm_with_fallback(prompt)
+# Stream answer word by word
+        words = answer.split()
+        for i, word in enumerate(words):
+            chunk = word + (" " if i < len(words) - 1 else "")
         yield f"data: {json.dumps({'answer': answer, 'provider': provider, 'done': True})}\n\n"
+        yield f"data: {json.dumps({'done': True})}\n\n"
     except Exception as e:
         yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
 @app.get("/")
 def root():
     return {"message": "PgBrain API is running. Connection pooling + streaming enabled."}
+
 
 @app.post("/query", response_model=QueryResponse)
 async def query_pgbrain(request: QueryRequest):
@@ -290,15 +296,24 @@ async def get_user_connection(user_id: str):
 @app.post("/query/stream")
 async def query_stream(request: QueryRequest):
     try:
+        # Preprocess query
+        raw_query = request.query.strip()
+        if raw_query.endswith('?'):
+            raw_query = raw_query[:-1]
+        
+        # Generate embedding
         model = get_embedding_model()
-        query_embedding = model.encode(request.query).tolist()
+        query_embedding = model.encode(raw_query).tolist()
+        
+        # Get similar chunks
         results = await get_similar_chunks(query_embedding)
         
         if not results:
             return {"answer": "I don't have enough information.", "sources": []}
         
+        # Build context
         context = "\n\n".join([f"[{title}]: {content}" for content, title in results])
-        prompt = f"Context:\n{context}\n\nQuestion: {request.query}"
+        prompt = f"Context:\n{context}\n\nQuestion: {raw_query}"
         
         return StreamingResponse(
             generate_stream(prompt),
@@ -310,23 +325,3 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
-@app.post("/query/stream")
-async def query_stream(request: QueryRequest):
-    try:
-        model = get_embedding_model()
-        query_embedding = model.encode(request.query).tolist()
-        results = await get_similar_chunks(query_embedding)
-        
-        if not results:
-            return {"answer": "I don't have enough information.", "sources": []}
-        
-        context = "\n\n".join([f"[{title}]: {content}" for content, title in results])
-        prompt = f"Context:\n{context}\n\nQuestion: {request.query}"
-        
-        return StreamingResponse(
-            generate_stream(prompt),
-            media_type="text/event-stream"
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
