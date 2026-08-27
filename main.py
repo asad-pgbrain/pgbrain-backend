@@ -291,10 +291,11 @@ async def get_user_connection(user_id: str):
 @app.post("/query/stream")
 async def query_stream(request: QueryRequest):
     try:
-        # Preprocess query
-        raw_query = request.query.strip()
-        if raw_query.endswith('?'):
-            raw_query = raw_query[:-1]
+    raw_query = request.query.strip()
+    if raw_query.endswith('?'):
+        raw_query = raw_query[:-1]
+except Exception as e:
+    raw_query = request.query.strip()
         
         # Generate embedding
         model = get_embedding_model()
